@@ -1,0 +1,108 @@
+#! /usr/bin/env ruby
+
+# December 22, 2011
+
+require 'fileutils'
+require 'optparse'
+
+options = {}
+
+optparse = OptionParser.new do |opts|
+
+  executable_name = File.basename( $PROGRAM_NAME )
+  opts.banner = "Usage: #{executable_name} [options] latex_filename"
+ 
+  options[:output] = 'To Submit'
+  opts.on( '-o', '--output-dir DIRECTORY', 'Output to a specific directory. Default: "To Submit"') do |f|
+    options[:output] = f
+  end
+
+  options[:reduced_images] = false
+  opts.on( '-r', '--reduced-images', 'Use reduced size images FILENAME_reduced if these exist') do
+    options[:reduced_images] = true
+  end
+
+  options[:supplementary] = false
+  opts.on( '-s', '--supplementary-info', 'Append _SI to figure filenames') do
+    options[:supplementary] = true
+  end
+
+  opts.on( '-h', '--help', 'Display this screen' ) do
+    puts opts
+    exit
+  end
+
+end
+
+optparse.parse!
+
+submit_dir = options[:output].sub(/\/$/,'')
+
+abort( optparse.banner ) unless ARGV.size == 1 
+file = ARGV[0]
+new_file = submit_dir + '/' + file
+
+begin
+  tex_file = File.new(file, 'r').readlines
+rescue
+  abort "Error reading #{file}"
+end
+
+begin
+  Dir::mkdir( submit_dir )
+rescue
+  puts "#{submit_dir} already exists"
+end
+
+new_tex_file = File.new( new_file , 'w')
+fig_re = /includegraphics\*?\{([A-Za-z0-9_\.\-]+)\}/
+figs_dir_re = /\\graphicspath\{\{([A-Za-z0-9 \/]+)\}\}/
+bibtex_re = /\\bibliography\{([A-Za-z0-9_\-]+)\}/
+include_re = /\A[^%]+\include\{([A-Za-z0-9_\. ]+)\}/
+
+user_replacements = [ [ /\\u\{([^\}]+)\}/, '\,\mathrm{\1}' ],
+                      [ /\\m\{([^\}]+)\}/, '\mathrm{\1}' ] ]
+
+fig_count = 0
+fig_dir = '.'
+additional_tex_files = []
+
+puts "Generating files for manuscript submission"
+tex_file.each do |line|
+  user_replacements.each{ |re,replacement| line.gsub!( re, replacement ) }
+  case line
+  when figs_dir_re # line matches e.g. \graphicspath{{Figures/}}
+    fig_dir = $1.gsub("/","")
+  when include_re    # line matches e.g. \input{user_commands.tex}
+    additional_tex_files << $1
+    new_tex_file.puts line
+  when fig_re      # line matches e.g. \resizebox{6cm}{!}{\includegraphics*{Li_sites.eps}}%
+    fig_count += 1
+    old_file_name = $1
+    new_file_name = "figure#{fig_count}.pdf"
+    new_file_name.sub!( /\.pdf\Z/, "_SI.pdf" ) if options[:supplementary]
+    if options[:reduced_images]
+    	reduced_eps_file_name = old_file_name.sub( /\.pdf\Z/, '_reduced.pdf' )
+    	old_file_name = reduced_eps_file_name if File.exists?( fig_dir + '/' + reduced_eps_file_name )
+    end
+    new_tex_file.puts line.gsub( fig_re, "\includegraphics\*\{#{new_file_name}\}" )
+    # Copy .eps file from /Figures to /To Submit
+    FileUtils.cp( fig_dir + '/' + old_file_name, submit_dir + '/' + new_file_name )
+    puts "Copying #{old_file_name} to #{submit_dir}/#{new_file_name}"
+  else
+    new_tex_file.puts line
+  end
+end
+puts "Finished parsing #{file}"
+
+bblfile = file.gsub('.tex','.bbl')
+# copy .bbl file
+puts "Copying #{bblfile}"
+FileUtils.cp( bblfile, submit_dir )
+additional_tex_files.each do |file| 
+	file << ".tex" unless file.match(/\.tex\Z/)
+  puts "Copying #{file}"
+  FileUtils.cp( file, submit_dir )
+end
+
+puts "Finished"
