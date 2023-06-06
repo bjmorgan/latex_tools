@@ -68,6 +68,16 @@ fig_dir = '.'
 additional_tex_files = []
 
 puts "Generating files for manuscript submission"
+
+# strip out comments
+stripped_tex_file = tex_file.map do |line|
+  # check if line starts with '%', then ignore the line
+  next if line.strip.start_with?('%')
+  # if line contains '%', only take portion before '%'
+  line.include?('%') ? line.partition('%').first : line
+end.compact  # .compact to remove nil entries
+tex_file = stripped_tex_file
+
 tex_file.each do |line|
   user_replacements.each{ |re,replacement| line.gsub!( re, replacement ) }
   case line
